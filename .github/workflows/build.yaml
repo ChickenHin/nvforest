@@ -1,227 +1,227 @@
-name: build
+# name: build
 
-on:
-  push:
-    branches:
-      - "main"
-      - "release/*"
-    tags:
-      - v[0-9][0-9].[0-9][0-9].[0-9][0-9]
-  workflow_dispatch:
-    inputs:
-      branch:
-        description: |
-          branch: git branch the workflow run targets.
-          Required even when 'sha' is provided because it is also used for organizing artifacts.
-        required: true
-        type: string
-      date:
-        description: "date: Date (YYYY-MM-DD) this run is for. Used to organize artifacts produced by nightly builds"
-        required: true
-        type: string
-      sha:
-        description: "sha: full git commit SHA to check out"
-        required: true
-        type: string
-      build_type:
-        description: "build_type: one of [branch, nightly, pull-request]"
-        type: string
-        default: nightly
+# on:
+#   push:
+#     branches:
+#       - "main"
+#       - "release/*"
+#     tags:
+#       - v[0-9][0-9].[0-9][0-9].[0-9][0-9]
+#   workflow_dispatch:
+#     inputs:
+#       branch:
+#         description: |
+#           branch: git branch the workflow run targets.
+#           Required even when 'sha' is provided because it is also used for organizing artifacts.
+#         required: true
+#         type: string
+#       date:
+#         description: "date: Date (YYYY-MM-DD) this run is for. Used to organize artifacts produced by nightly builds"
+#         required: true
+#         type: string
+#       sha:
+#         description: "sha: full git commit SHA to check out"
+#         required: true
+#         type: string
+#       build_type:
+#         description: "build_type: one of [branch, nightly, pull-request]"
+#         type: string
+#         default: nightly
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
-  cancel-in-progress: true
+# concurrency:
+#   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
+#   cancel-in-progress: true
 
-permissions: {}
+# permissions: {}
 
-jobs:
-  build-details:
-    uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
-  cpp-build:
-    needs: [build-details]
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
-    with:
-      build_type: ${{ inputs.build_type || 'branch' }}
-      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
-      node_type: cpu16
-      branch: ${{ inputs.branch }}
-      date: ${{ inputs.date }}
-      script: ci/build_cpp.sh
-      sha: ${{ inputs.sha }}
-  python-build:
-    needs: [build-details, cpp-build]
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
-    with:
-      build_type: ${{ inputs.build_type || 'branch' }}
-      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
-      branch: ${{ inputs.branch }}
-      date: ${{ inputs.date }}
-      script: ci/build_python.sh
-      sha: ${{ inputs.sha }}
-      # Build a conda package for each CUDA x ARCH x minimum supported Python version
-      matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
-  docs-build:
-    if: github.ref_type == 'branch'
-    needs: [python-build]
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
-    with:
-      arch: "amd64"
-      branch: ${{ inputs.branch }}
-      build_type: ${{ inputs.build_type || 'branch' }}
-      container_image: "rapidsai/ci-conda:26.12-latest"
-      date: ${{ inputs.date }}
-      node_type: gpu-l4-latest-1
-      script: "ci/build_docs.sh"
-      sha: ${{ inputs.sha }}
-  publish-api-docs:
-    if: github.ref_type == 'branch'
-    needs: [docs-build]
-    permissions:
-      contents: read
-      id-token: write
-    secrets:
-      akamai-access-token: ${{ secrets.NVIDIA_DOCS_AKAMAI_ACCESS_TOKEN }}
-      akamai-client-token: ${{ secrets.NVIDIA_DOCS_AKAMAI_CLIENT_TOKEN }}
-      akamai-client-secret: ${{ secrets.NVIDIA_DOCS_AKAMAI_CLIENT_SECRET }}
-      akamai-emails-to-notify: ${{ secrets.NVIDIA_DOCS_AKAMAI_EMAILS_TO_NOTIFY }}
-      akamai-host: ${{ secrets.NVIDIA_DOCS_AKAMAI_HOST }}
-      target-aws-access-key-id: ${{ secrets.NVIDIA_DOCS_AWS_ACCESS_KEY_ID }}
-      target-aws-region: ${{ secrets.NVIDIA_DOCS_AWS_REGION }}
-      target-aws-secret-access-key: ${{ secrets.NVIDIA_DOCS_AWS_SECRET_ACCESS_KEY }}
-      target-s3-bucket: ${{ secrets.NVIDIA_DOCS_S3_BUCKET }}
-    uses: rapidsai/shared-workflows/.github/workflows/publish-api-docs.yaml@main
-    with:
-      docs-projects: nvforest
-      dry-run: false
-      version-map: ${{ vars.VERSION_MAP }}
-  upload-conda:
-    needs: [cpp-build, python-build]
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/conda-upload-packages.yaml@main
-    secrets:
-      CONDA_RAPIDSAI_NIGHTLY_TOKEN: ${{ secrets.CONDA_RAPIDSAI_NIGHTLY_TOKEN }}
-      CONDA_RAPIDSAI_TOKEN: ${{ secrets.CONDA_RAPIDSAI_TOKEN }}
-    with:
-      build_type: ${{ inputs.build_type || 'branch' }}
-      branch: ${{ inputs.branch }}
-      date: ${{ inputs.date }}
-      sha: ${{ inputs.sha }}
-  wheel-build-libnvforest:
-    needs: [build-details]
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
-    with:
-      build_type: ${{ inputs.build_type || 'branch' }}
-      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
-      branch: ${{ inputs.branch }}
-      sha: ${{ inputs.sha }}
-      date: ${{ inputs.date }}
-      node_type: cpu16
-      script: ci/build_wheel_libnvforest.sh
-      # build for every combination of arch and CUDA version, but only for the latest Python
-      matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
-      package-name: libnvforest
-      package-type: cpp
-  wheel-publish-libnvforest:
-    needs: wheel-build-libnvforest
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@main
-    secrets:
-      CONDA_RAPIDSAI_WHEELS_NIGHTLY_TOKEN: ${{ secrets.CONDA_RAPIDSAI_WHEELS_NIGHTLY_TOKEN }}
-      RAPIDSAI_PYPI_TOKEN: ${{ secrets.RAPIDSAI_PYPI_TOKEN }}
-    with:
-      build_type: ${{ inputs.build_type || 'branch' }}
-      branch: ${{ inputs.branch }}
-      sha: ${{ inputs.sha }}
-      date: ${{ inputs.date }}
-      package-name: libnvforest
-      package-type: cpp
-      publish-wheel-search-key: nvforest_wheel_cpp_libnvforest
-  wheel-build-nvforest:
-    needs: [build-details, wheel-build-libnvforest]
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
-    with:
-      build_type: ${{ inputs.build_type || 'branch' }}
-      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
-      branch: ${{ inputs.branch }}
-      sha: ${{ inputs.sha }}
-      date: ${{ inputs.date }}
-      node_type: cpu8
-      script: ci/build_wheel_nvforest.sh
-      package-name: nvforest
-      package-type: python
-      # Build a wheel for each CUDA x ARCH x minimum supported Python version
-      matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
-  wheel-publish-nvforest:
-    needs: wheel-build-nvforest
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@main
-    secrets:
-      CONDA_RAPIDSAI_WHEELS_NIGHTLY_TOKEN: ${{ secrets.CONDA_RAPIDSAI_WHEELS_NIGHTLY_TOKEN }}
-      RAPIDSAI_PYPI_TOKEN: ${{ secrets.RAPIDSAI_PYPI_TOKEN }}
-    with:
-      build_type: ${{ inputs.build_type || 'branch' }}
-      branch: ${{ inputs.branch }}
-      sha: ${{ inputs.sha }}
-      date: ${{ inputs.date }}
-      package-name: nvforest
-      package-type: python
-      publish-wheel-search-key: nvforest_wheel_python_nvforest
-  devcontainers:
-    name: Build devcontainers
-    secrets: inherit  # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/build-devcontainers.yaml@main
-    permissions:
-      packages: write
-    with:
-      push: true
-      cuda: '["12.9", "13.3"]'
+# jobs:
+#   build-details:
+#     uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
+#   cpp-build:
+#     needs: [build-details]
+#     permissions:
+#       actions: read
+#       contents: read
+#       id-token: write
+#       packages: read
+#       pull-requests: read
+#     secrets: inherit # zizmor: ignore[secrets-inherit]
+#     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@main
+#     with:
+#       build_type: ${{ inputs.build_type || 'branch' }}
+#       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
+#       node_type: cpu16
+#       branch: ${{ inputs.branch }}
+#       date: ${{ inputs.date }}
+#       script: ci/build_cpp.sh
+#       sha: ${{ inputs.sha }}
+#   python-build:
+#     needs: [build-details, cpp-build]
+#     permissions:
+#       actions: read
+#       contents: read
+#       id-token: write
+#       packages: read
+#       pull-requests: read
+#     secrets: inherit # zizmor: ignore[secrets-inherit]
+#     uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@main
+#     with:
+#       build_type: ${{ inputs.build_type || 'branch' }}
+#       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
+#       branch: ${{ inputs.branch }}
+#       date: ${{ inputs.date }}
+#       script: ci/build_python.sh
+#       sha: ${{ inputs.sha }}
+#       # Build a conda package for each CUDA x ARCH x minimum supported Python version
+#       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
+#   docs-build:
+#     if: github.ref_type == 'branch'
+#     needs: [python-build]
+#     permissions:
+#       actions: read
+#       contents: read
+#       id-token: write
+#       packages: read
+#       pull-requests: read
+#     secrets: inherit # zizmor: ignore[secrets-inherit]
+#     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+#     with:
+#       arch: "amd64"
+#       branch: ${{ inputs.branch }}
+#       build_type: ${{ inputs.build_type || 'branch' }}
+#       container_image: "rapidsai/ci-conda:26.12-latest"
+#       date: ${{ inputs.date }}
+#       node_type: gpu-l4-latest-1
+#       script: "ci/build_docs.sh"
+#       sha: ${{ inputs.sha }}
+#   publish-api-docs:
+#     if: github.ref_type == 'branch'
+#     needs: [docs-build]
+#     permissions:
+#       contents: read
+#       id-token: write
+#     secrets:
+#       akamai-access-token: ${{ secrets.NVIDIA_DOCS_AKAMAI_ACCESS_TOKEN }}
+#       akamai-client-token: ${{ secrets.NVIDIA_DOCS_AKAMAI_CLIENT_TOKEN }}
+#       akamai-client-secret: ${{ secrets.NVIDIA_DOCS_AKAMAI_CLIENT_SECRET }}
+#       akamai-emails-to-notify: ${{ secrets.NVIDIA_DOCS_AKAMAI_EMAILS_TO_NOTIFY }}
+#       akamai-host: ${{ secrets.NVIDIA_DOCS_AKAMAI_HOST }}
+#       target-aws-access-key-id: ${{ secrets.NVIDIA_DOCS_AWS_ACCESS_KEY_ID }}
+#       target-aws-region: ${{ secrets.NVIDIA_DOCS_AWS_REGION }}
+#       target-aws-secret-access-key: ${{ secrets.NVIDIA_DOCS_AWS_SECRET_ACCESS_KEY }}
+#       target-s3-bucket: ${{ secrets.NVIDIA_DOCS_S3_BUCKET }}
+#     uses: rapidsai/shared-workflows/.github/workflows/publish-api-docs.yaml@main
+#     with:
+#       docs-projects: nvforest
+#       dry-run: false
+#       version-map: ${{ vars.VERSION_MAP }}
+#   upload-conda:
+#     needs: [cpp-build, python-build]
+#     permissions:
+#       actions: read
+#       contents: read
+#       id-token: write
+#       packages: read
+#       pull-requests: read
+#     uses: rapidsai/shared-workflows/.github/workflows/conda-upload-packages.yaml@main
+#     secrets:
+#       CONDA_RAPIDSAI_NIGHTLY_TOKEN: ${{ secrets.CONDA_RAPIDSAI_NIGHTLY_TOKEN }}
+#       CONDA_RAPIDSAI_TOKEN: ${{ secrets.CONDA_RAPIDSAI_TOKEN }}
+#     with:
+#       build_type: ${{ inputs.build_type || 'branch' }}
+#       branch: ${{ inputs.branch }}
+#       date: ${{ inputs.date }}
+#       sha: ${{ inputs.sha }}
+#   wheel-build-libnvforest:
+#     needs: [build-details]
+#     permissions:
+#       actions: read
+#       contents: read
+#       id-token: write
+#       packages: read
+#       pull-requests: read
+#     secrets: inherit # zizmor: ignore[secrets-inherit]
+#     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
+#     with:
+#       build_type: ${{ inputs.build_type || 'branch' }}
+#       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
+#       branch: ${{ inputs.branch }}
+#       sha: ${{ inputs.sha }}
+#       date: ${{ inputs.date }}
+#       node_type: cpu16
+#       script: ci/build_wheel_libnvforest.sh
+#       # build for every combination of arch and CUDA version, but only for the latest Python
+#       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
+#       package-name: libnvforest
+#       package-type: cpp
+#   wheel-publish-libnvforest:
+#     needs: wheel-build-libnvforest
+#     permissions:
+#       actions: read
+#       contents: read
+#       id-token: write
+#       packages: read
+#       pull-requests: read
+#     uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@main
+#     secrets:
+#       CONDA_RAPIDSAI_WHEELS_NIGHTLY_TOKEN: ${{ secrets.CONDA_RAPIDSAI_WHEELS_NIGHTLY_TOKEN }}
+#       RAPIDSAI_PYPI_TOKEN: ${{ secrets.RAPIDSAI_PYPI_TOKEN }}
+#     with:
+#       build_type: ${{ inputs.build_type || 'branch' }}
+#       branch: ${{ inputs.branch }}
+#       sha: ${{ inputs.sha }}
+#       date: ${{ inputs.date }}
+#       package-name: libnvforest
+#       package-type: cpp
+#       publish-wheel-search-key: nvforest_wheel_cpp_libnvforest
+#   wheel-build-nvforest:
+#     needs: [build-details, wheel-build-libnvforest]
+#     permissions:
+#       actions: read
+#       contents: read
+#       id-token: write
+#       packages: read
+#       pull-requests: read
+#     secrets: inherit # zizmor: ignore[secrets-inherit]
+#     uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@main
+#     with:
+#       build_type: ${{ inputs.build_type || 'branch' }}
+#       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
+#       branch: ${{ inputs.branch }}
+#       sha: ${{ inputs.sha }}
+#       date: ${{ inputs.date }}
+#       node_type: cpu8
+#       script: ci/build_wheel_nvforest.sh
+#       package-name: nvforest
+#       package-type: python
+#       # Build a wheel for each CUDA x ARCH x minimum supported Python version
+#       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
+#   wheel-publish-nvforest:
+#     needs: wheel-build-nvforest
+#     permissions:
+#       actions: read
+#       contents: read
+#       id-token: write
+#       packages: read
+#       pull-requests: read
+#     uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@main
+#     secrets:
+#       CONDA_RAPIDSAI_WHEELS_NIGHTLY_TOKEN: ${{ secrets.CONDA_RAPIDSAI_WHEELS_NIGHTLY_TOKEN }}
+#       RAPIDSAI_PYPI_TOKEN: ${{ secrets.RAPIDSAI_PYPI_TOKEN }}
+#     with:
+#       build_type: ${{ inputs.build_type || 'branch' }}
+#       branch: ${{ inputs.branch }}
+#       sha: ${{ inputs.sha }}
+#       date: ${{ inputs.date }}
+#       package-name: nvforest
+#       package-type: python
+#       publish-wheel-search-key: nvforest_wheel_python_nvforest
+#   devcontainers:
+#     name: Build devcontainers
+#     secrets: inherit  # zizmor: ignore[secrets-inherit]
+#     uses: rapidsai/shared-workflows/.github/workflows/build-devcontainers.yaml@main
+#     permissions:
+#       packages: write
+#     with:
+#       push: true
+#       cuda: '["12.9", "13.3"]'
