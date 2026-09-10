@@ -19,7 +19,7 @@ on:
         description: "sha: full git commit SHA to check out"
         required: false
         type: string
-        default: ${{github.sha}}
+        default: "79015730c1e638a40da0df74f90ffc7464cd83c2"
       build_type:
         description: "build_type: one of [branch, nightly, pull-request]"
         type: string
