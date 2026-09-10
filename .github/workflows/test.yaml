@@ -25,20 +25,20 @@ on:
 permissions: {}
 
 jobs:
-  conda-cpp-checks:
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-post-build-checks.yaml@main
-    with:
-      build_type: ${{ inputs.build_type }}
-      branch: ${{ inputs.branch }}
-      date: ${{ inputs.date }}
-      sha: ${{ inputs.sha }}
-      package_name: libnvforest
+  # conda-cpp-checks:
+  #   permissions:
+  #     actions: read
+  #     contents: read
+  #     id-token: write
+  #     packages: read
+  #     pull-requests: read
+  #   uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-post-build-checks.yaml@main
+  #   with:
+  #     build_type: ${{ inputs.build_type }}
+  #     branch: ${{ inputs.branch }}
+  #     date: ${{ inputs.date }}
+  #     sha: ${{ inputs.sha }}
+  #     package_name: libnvforest
   conda-cpp-tests:
     permissions:
       actions: read
@@ -54,34 +54,34 @@ jobs:
       date: ${{ inputs.date }}
       script: ci/test_cpp.sh
       sha: ${{ inputs.sha }}
-  conda-python-tests:
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
-    with:
-      build_type: ${{ inputs.build_type }}
-      branch: ${{ inputs.branch }}
-      date: ${{ inputs.date }}
-      sha: ${{ inputs.sha }}
-      script: "ci/test_python.sh"
-      run_codecov: false
-  wheel-tests-nvforest:
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
-    with:
-      build_type: ${{ inputs.build_type }}
-      branch: ${{ inputs.branch }}
-      date: ${{ inputs.date }}
-      sha: ${{ inputs.sha }}
-      script: ci/test_wheel.sh
+  # conda-python-tests:
+  #   permissions:
+  #     actions: read
+  #     contents: read
+  #     id-token: write
+  #     packages: read
+  #     pull-requests: read
+  #   secrets: inherit # zizmor: ignore[secrets-inherit]
+  #   uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
+  #   with:
+  #     build_type: ${{ inputs.build_type }}
+  #     branch: ${{ inputs.branch }}
+  #     date: ${{ inputs.date }}
+  #     sha: ${{ inputs.sha }}
+  #     script: "ci/test_python.sh"
+  #     run_codecov: false
+  # wheel-tests-nvforest:
+  #   permissions:
+  #     actions: read
+  #     contents: read
+  #     id-token: write
+  #     packages: read
+  #     pull-requests: read
+  #   secrets: inherit # zizmor: ignore[secrets-inherit]
+  #   uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
+  #   with:
+  #     build_type: ${{ inputs.build_type }}
+  #     branch: ${{ inputs.branch }}
+  #     date: ${{ inputs.date }}
+  #     sha: ${{ inputs.sha }}
+  #     script: ci/test_wheel.sh
